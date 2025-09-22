@@ -3,15 +3,15 @@ import './style.css';
 const app = document.querySelector('#app');
 
 const template = document.createElement('template');
-template.innerHTML = `
-  <main class="container">
+let header = `
     <header>
-      <h1>Beat Pulse Mic Game</h1>
+      <h1>Beat Pulse</h1>
       <p>
-        Tap the beat button in rhythm with what the microphone hears. Matching the detected beat
-        boosts your streak and score!
+        Guess the BPM. Assist modes: tap tempo, flash screen on songs beat, flash screen on tap tempo.
       </p>
     </header>
+    `;
+let controls = `
     <section class="controls">
       <button id="start-btn" type="button" aria-label="Start listening">🎤</button>
       <button
@@ -26,6 +26,8 @@ template.innerHTML = `
       <button id="assist-btn" type="button">Assist Mode: Off</button>
       <button id="reset-btn" type="button">Reset Score</button>
     </section>
+    `;
+let status = `
     <section class="status">
       <p><strong>Microphone Level:</strong> <span id="level">0</span></p>
       <p><strong>Beat Streak:</strong> <span id="streak">0</span></p>
@@ -33,8 +35,18 @@ template.innerHTML = `
       <p id="message" role="status" aria-live="polite"></p>
       <p id="bpm-results" hidden></p>
     </section>
+    `;
+template.innerHTML =  `
+  <main class="container">
+    ${header}
+     ${controls}
+    <section style="text-align:center" class="status">
+      <p><strong>BPM:</strong> <input type="number" id="bpm-input" min="40" max="240" step="1" aria-label="Enter your BPM guess" /></p>
+      <p> <input type="button" id="bpm-submit" value="Submit" /></p>
+    </section>
+    ${status}
   </main>
-`;
+`
 
 app.appendChild(template.content.cloneNode(true));
 
@@ -48,6 +60,10 @@ const streakSpan = document.querySelector('#streak');
 const scoreSpan = document.querySelector('#score');
 const message = document.querySelector('#message');
 const bpmResults = document.querySelector('#bpm-results');
+
+const bpmInput = document.querySelector('#bpm-input');
+const bpmSubmit = document.querySelector('#bpm-submit');
+
 
 let audioContext;
 let analyser;
@@ -256,6 +272,20 @@ function triggerAssistFlash() {
   }, 180);
 }
 
+function submitBpmGuess() {
+  const guess = parseFloat(bpmInput.value);
+  if (isNaN(guess) || guess < 40 || guess > 240) {
+    message.textContent = 'Please enter a valid BPM between 40 and 240.';
+    return;
+  }
+  if (lastTrackBpm) {
+    const diff = Math.abs(guess - lastTrackBpm);
+    if (diff < 3) {
+      score += 50;
+      message.textContent = `Amazing! Your guess of ${guess} BPM is very close to the track BPM of ${lastTrackBpm.toFixed(1)}! +50 points.`;
+    }
+
+
 startBtn.addEventListener('click', startListening);
 stopBtn.addEventListener('click', stopListening);
 tapBtn.addEventListener('click', handleTap);
@@ -281,3 +311,5 @@ window.addEventListener('beforeunload', () => {
     stopListening();
   }
 });
+
+
