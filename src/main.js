@@ -13,8 +13,15 @@ template.innerHTML = `
       </p>
     </header>
     <section class="controls">
-      <button id="start-btn" type="button">Start Listening</button>
-      <button id="stop-btn" type="button" disabled>Stop Listening</button>
+      <button id="start-btn" type="button" aria-label="Start listening">🎤</button>
+      <button
+        id="stop-btn"
+        type="button"
+        aria-label="Stop listening"
+        disabled
+      >
+        ■
+      </button>
       <button id="tap-btn" type="button" disabled>Tap Beat</button>
       <button id="assist-btn" type="button">Assist Mode: Off</button>
       <button id="reset-btn" type="button">Reset Score</button>
