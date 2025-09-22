@@ -85,6 +85,7 @@ let hasShownResults = false;
 let assistModeEnabled = false;
 let assistFlashTimeout;
 
+// game logic
 async function startListening() {
   if (!navigator.mediaDevices?.getUserMedia) {
     message.textContent = 'Microphone access is not supported in this browser.';
@@ -141,7 +142,36 @@ function resetGame() {
   bpmResults.hidden = true;
   bpmResults.textContent = '';
 }
+function renderBpmResults() {
+  if (!hasShownResults) {
+    return;
+  }
+  const tapText = lastTapBpm
+    ? `Итоговый BPM нажатий: ${lastTapBpm.toFixed(1)}`
+    : 'Итоговый BPM нажатий: недостаточно данных';
+  const trackText = lastTrackBpm
+    ? `BPM трека: ${lastTrackBpm.toFixed(1)}`
+    : 'BPM трека: недостаточно данных';
+  bpmResults.textContent = `${tapText} · ${trackText}`;
+}
 
+function toggleAssistMode() {
+  assistModeEnabled = !assistModeEnabled;
+  assistBtn.textContent = assistModeEnabled ? 'Assist Mode: On' : 'Assist Mode: Off';
+  if (!assistModeEnabled) {
+    document.body.classList.remove('assist-flash');
+    document.body.classList.remove('assist-mode');
+    if (assistFlashTimeout) {
+      clearTimeout(assistFlashTimeout);
+    }
+    assistFlashTimeout = undefined;
+    return;
+  }
+  document.body.classList.add('assist-mode');
+}
+
+
+// music beat detection based on simple amplitude thresholding
 function registerPeak() {
   const now = performance.now();
   if (now - lastPeakTime > minPeakInterval) {
@@ -232,34 +262,7 @@ function calculateBpm(times) {
   return 60000 / averageInterval;
 }
 
-function renderBpmResults() {
-  if (!hasShownResults) {
-    return;
-  }
-  const tapText = lastTapBpm
-    ? `Итоговый BPM нажатий: ${lastTapBpm.toFixed(1)}`
-    : 'Итоговый BPM нажатий: недостаточно данных';
-  const trackText = lastTrackBpm
-    ? `BPM трека: ${lastTrackBpm.toFixed(1)}`
-    : 'BPM трека: недостаточно данных';
-  bpmResults.textContent = `${tapText} · ${trackText}`;
-}
-
-function toggleAssistMode() {
-  assistModeEnabled = !assistModeEnabled;
-  assistBtn.textContent = assistModeEnabled ? 'Assist Mode: On' : 'Assist Mode: Off';
-  if (!assistModeEnabled) {
-    document.body.classList.remove('assist-flash');
-    document.body.classList.remove('assist-mode');
-    if (assistFlashTimeout) {
-      clearTimeout(assistFlashTimeout);
-    }
-    assistFlashTimeout = undefined;
-    return;
-  }
-  document.body.classList.add('assist-mode');
-}
-
+// misc helpers
 function triggerAssistFlash() {
   document.body.classList.add('assist-mode');
   document.body.classList.add('assist-flash');
@@ -283,7 +286,7 @@ function submitBpmGuess() {
     if (diff < 3) {
       score += 50;
       message.textContent = `Amazing! Your guess of ${guess} BPM is very close to the track BPM of ${lastTrackBpm.toFixed(1)}! +50 points.`;
-    }
+    }}}
 
 
 startBtn.addEventListener('click', startListening);
@@ -311,5 +314,4 @@ window.addEventListener('beforeunload', () => {
     stopListening();
   }
 });
-
 
