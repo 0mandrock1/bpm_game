@@ -1,12 +1,21 @@
 :root {
   font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
   color: #0f172a;
-  background-color: #f8fafc;
   line-height: 1.6;
 }
 
 body {
   margin: 0;
+  background-color: #f8fafc;
+  transition: background-color 180ms ease;
+}
+
+body.assist-mode {
+  transition: background-color 180ms ease;
+}
+
+body.assist-mode.assist-flash {
+  background-color: #e8ffe8;
 }
 
 .container {
@@ -82,4 +91,10 @@ button:disabled {
   margin-top: 1rem;
   font-weight: 600;
   color: #0f172a;
+}
+
+#bpm-results {
+  margin-top: 1rem;
+  font-weight: 600;
+  color: #16a34a;
 }
