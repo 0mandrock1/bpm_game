@@ -16,6 +16,7 @@ template.innerHTML = `
       <button id="start-btn" type="button">Start Listening</button>
       <button id="stop-btn" type="button" disabled>Stop Listening</button>
       <button id="tap-btn" type="button" disabled>Tap Beat</button>
+      <button id="assist-btn" type="button">Assist Mode: Off</button>
       <button id="reset-btn" type="button">Reset Score</button>
     </section>
     <section class="status">
@@ -23,6 +24,7 @@ template.innerHTML = `
       <p><strong>Beat Streak:</strong> <span id="streak">0</span></p>
       <p><strong>Score:</strong> <span id="score">0</span></p>
       <p id="message" role="status" aria-live="polite"></p>
+      <p id="bpm-results" hidden></p>
     </section>
   </main>
 `;
@@ -32,11 +34,13 @@ app.appendChild(template.content.cloneNode(true));
 const startBtn = document.querySelector('#start-btn');
 const stopBtn = document.querySelector('#stop-btn');
 const tapBtn = document.querySelector('#tap-btn');
+const assistBtn = document.querySelector('#assist-btn');
 const resetBtn = document.querySelector('#reset-btn');
 const levelSpan = document.querySelector('#level');
 const streakSpan = document.querySelector('#streak');
 const scoreSpan = document.querySelector('#score');
 const message = document.querySelector('#message');
+const bpmResults = document.querySelector('#bpm-results');
 
 let audioContext;
 let analyser;
@@ -50,6 +54,13 @@ const peakWindow = 1000; // ms window to match beat taps
 const minPeakInterval = 350; // ms between peaks to avoid noise
 const levelSmoothing = 0.2;
 let displayLevel = 0;
+const peakTimes = [];
+const consecutiveTapTimes = [];
+let lastTapBpm = null;
+let lastTrackBpm = null;
+let hasShownResults = false;
+let assistModeEnabled = false;
+let assistFlashTimeout;
 
 async function startListening() {
   if (!navigator.mediaDevices?.getUserMedia) {
@@ -70,6 +81,8 @@ async function startListening() {
     tapBtn.disabled = false;
     stopBtn.disabled = false;
     startBtn.disabled = true;
+    peakTimes.length = 0;
+    lastTrackBpm = null;
     message.textContent = 'Listening for beats…';
     detectLoop();
   } catch (error) {
@@ -94,9 +107,16 @@ function stopListening() {
 function resetGame() {
   streak = 0;
   score = 0;
+  consecutiveTapTimes.length = 0;
+  peakTimes.length = 0;
+  lastTapBpm = null;
+  lastTrackBpm = null;
+  hasShownResults = false;
   streakSpan.textContent = streak.toString();
   scoreSpan.textContent = score.toString();
   message.textContent = 'Game reset. Ready when you are!';
+  bpmResults.hidden = true;
+  bpmResults.textContent = '';
 }
 
 function registerPeak() {
@@ -104,6 +124,18 @@ function registerPeak() {
   if (now - lastPeakTime > minPeakInterval) {
     lastPeakTime = now;
     message.textContent = 'Beat detected! Try to match it!';
+    peakTimes.push(now);
+    if (peakTimes.length > 16) {
+      peakTimes.shift();
+    }
+    const trackBpm = calculateBpm(peakTimes);
+    if (trackBpm) {
+      lastTrackBpm = trackBpm;
+    }
+    if (assistModeEnabled) {
+      triggerAssistFlash();
+    }
+    renderBpmResults();
   }
 }
 
@@ -128,25 +160,114 @@ function detectLoop() {
 }
 
 function handleTap() {
+  if (tapBtn.disabled) {
+    return;
+  }
   const now = performance.now();
   if (now - lastPeakTime <= peakWindow) {
     streak += 1;
     score += 10 * streak;
     message.textContent = `Nice timing! Beat matched within ${Math.round(now - lastPeakTime)} ms.`;
+    consecutiveTapTimes.push(now);
+    if (consecutiveTapTimes.length > 16) {
+      consecutiveTapTimes.shift();
+    }
+    if (streak >= 4) {
+      const tapBpm = calculateBpm(consecutiveTapTimes);
+      if (tapBpm) {
+        lastTapBpm = tapBpm;
+      }
+      if (!hasShownResults) {
+        hasShownResults = true;
+        bpmResults.hidden = false;
+      }
+      renderBpmResults();
+    }
   } else {
     streak = 0;
     score = Math.max(0, score - 5);
     message.textContent = 'Missed the beat. Keep listening and try again!';
+    consecutiveTapTimes.length = 0;
   }
 
   streakSpan.textContent = streak.toString();
   scoreSpan.textContent = score.toString();
 }
 
+function calculateBpm(times) {
+  if (times.length < 2) {
+    return null;
+  }
+  let sumIntervals = 0;
+  for (let i = 1; i < times.length; i += 1) {
+    sumIntervals += times[i] - times[i - 1];
+  }
+  const averageInterval = sumIntervals / (times.length - 1);
+  if (averageInterval <= 0) {
+    return null;
+  }
+  return 60000 / averageInterval;
+}
+
+function renderBpmResults() {
+  if (!hasShownResults) {
+    return;
+  }
+  const tapText = lastTapBpm
+    ? `Итоговый BPM нажатий: ${lastTapBpm.toFixed(1)}`
+    : 'Итоговый BPM нажатий: недостаточно данных';
+  const trackText = lastTrackBpm
+    ? `BPM трека: ${lastTrackBpm.toFixed(1)}`
+    : 'BPM трека: недостаточно данных';
+  bpmResults.textContent = `${tapText} · ${trackText}`;
+}
+
+function toggleAssistMode() {
+  assistModeEnabled = !assistModeEnabled;
+  assistBtn.textContent = assistModeEnabled ? 'Assist Mode: On' : 'Assist Mode: Off';
+  if (!assistModeEnabled) {
+    document.body.classList.remove('assist-flash');
+    document.body.classList.remove('assist-mode');
+    if (assistFlashTimeout) {
+      clearTimeout(assistFlashTimeout);
+    }
+    assistFlashTimeout = undefined;
+    return;
+  }
+  document.body.classList.add('assist-mode');
+}
+
+function triggerAssistFlash() {
+  document.body.classList.add('assist-mode');
+  document.body.classList.add('assist-flash');
+  if (assistFlashTimeout) {
+    clearTimeout(assistFlashTimeout);
+  }
+  assistFlashTimeout = setTimeout(() => {
+    document.body.classList.remove('assist-flash');
+    assistFlashTimeout = undefined;
+  }, 180);
+}
+
 startBtn.addEventListener('click', startListening);
 stopBtn.addEventListener('click', stopListening);
 tapBtn.addEventListener('click', handleTap);
 resetBtn.addEventListener('click', resetGame);
+assistBtn.addEventListener('click', toggleAssistMode);
+
+window.addEventListener('keydown', (event) => {
+  if (event.code === 'Space' && !event.repeat) {
+    event.preventDefault();
+    handleTap();
+  }
+});
+
+document.addEventListener('pointerdown', (event) => {
+  if (event.target.closest('button')) {
+    return;
+  }
+  handleTap();
+});
 
 window.addEventListener('beforeunload', () => {
   if (audioContext?.state !== 'closed') {
