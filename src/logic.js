@@ -1,4 +1,4 @@
-import { calculateRefinedBpm, createEnergyHistory } from './helpers.js';
+import { calculateRefinedBpm, createEnergyHistory, normalizeBpm } from './helpers.js';
 
 export const assistModes = [
   {
@@ -32,9 +32,10 @@ export function createGameLogic(ui) {
   let assistModeIndex = 0;
   let audioContext;
   let analyser;
-  let dataArray;
+  let frequencyData;
   let animationId;
   let micStream;
+  let binWidth;
 
   let lastPeakTime = 0;
   let streak = 0;
@@ -46,7 +47,6 @@ export function createGameLogic(ui) {
 
   let displayLevel = 0;
 
-  const trackPeakTimes = [];
   const consecutiveTapTimes = [];
   const tapTempoTimes = [];
 
@@ -62,7 +62,14 @@ export function createGameLogic(ui) {
   let userBpmGuess = null;
   let userGuessDiff = null;
 
-  const energyHistory = createEnergyHistory(128);
+  const fluxHistory = createEnergyHistory(128);
+  const onsetTimes = [];
+
+  let lowBandLevel = 0;
+  let highBandLevel = 0;
+  let smoothedFlux = 0;
+
+  const spectralFluxEnabled = new URLSearchParams(window.location.search).get('bpm') !== 'legacy';
 
   function ensureResultsVisible() {
     if (!hasShownResults) {
@@ -98,12 +105,15 @@ export function createGameLogic(ui) {
       ui.triggerTrackFlash();
     }
 
+    onsetTimes.push(now);
+    if (onsetTimes.length > 64) {
+      onsetTimes.shift();
+    }
+
     if (!trackBpmLocked) {
-      trackPeakTimes.push(now);
-      if (trackPeakTimes.length > 32) {
-        trackPeakTimes.shift();
-      }
-      const refined = calculateRefinedBpm(trackPeakTimes);
+      const refined = spectralFluxEnabled
+        ? estimateBpmFromOnsets(onsetTimes) ?? calculateRefinedBpm(onsetTimes)
+        : calculateRefinedBpm(onsetTimes);
       if (refined) {
         lastTrackBpm = refined;
         trackBpmLocked = true;
@@ -114,38 +124,132 @@ export function createGameLogic(ui) {
     }
   }
 
-  function detectLoop() {
-    animationId = requestAnimationFrame(detectLoop);
-    analyser.getByteTimeDomainData(dataArray);
-
-    let sumSquares = 0;
-    for (let i = 0; i < dataArray.length; i += 1) {
-      const value = (dataArray[i] - 128) / 128;
-      sumSquares += value * value;
+  function computeBandAmplitude(minFrequency, maxFrequency) {
+    if (!frequencyData || !binWidth) {
+      return 0;
     }
 
-    const energy = sumSquares / dataArray.length;
-    energyHistory.push(energy);
+    const startIndex = Math.max(0, Math.floor(minFrequency / binWidth));
+    const endIndex = Math.min(
+      frequencyData.length - 1,
+      Math.ceil(maxFrequency / binWidth)
+    );
 
-    const rms = Math.sqrt(energy);
-    const level = Math.min(1, rms * 8);
+    if (endIndex < startIndex) {
+      return 0;
+    }
+
+    let sum = 0;
+    let count = 0;
+    for (let index = startIndex; index <= endIndex; index += 1) {
+      const value = frequencyData[index];
+      if (Number.isFinite(value)) {
+        sum += 10 ** (value / 20);
+        count += 1;
+      }
+    }
+
+    if (count === 0) {
+      return 0;
+    }
+
+    return sum / count;
+  }
+
+  function detectLoop() {
+    if (!analyser || !frequencyData) {
+      return;
+    }
+
+    animationId = requestAnimationFrame(detectLoop);
+    analyser.getFloatFrequencyData(frequencyData);
+
+    const lowBand = computeBandAmplitude(40, 200);
+    const highBand = computeBandAmplitude(2000, 5000);
+
+    const previousLow = lowBandLevel;
+    const previousHigh = highBandLevel;
+    const bandSmoothing = 0.3;
+    lowBandLevel = previousLow + bandSmoothing * (lowBand - previousLow);
+    highBandLevel = previousHigh + bandSmoothing * (highBand - previousHigh);
+
+    const lowFlux = Math.max(0, lowBandLevel - previousLow);
+    const highFlux = Math.max(0, highBandLevel - previousHigh);
+    const instantFlux = lowFlux * 0.65 + highFlux * 0.35;
+    const fluxSmoothing = 0.5;
+    smoothedFlux = smoothedFlux + fluxSmoothing * (instantFlux - smoothedFlux);
+
+    fluxHistory.push(smoothedFlux);
+
+    const level = Math.min(1, (lowBandLevel * 3 + highBandLevel * 2) * 2.5);
     displayLevel = displayLevel * (1 - levelSmoothing) + level * levelSmoothing;
     ui.updateLevel(displayLevel.toFixed(2));
 
     const now = performance.now();
-    const { mean, std } = energyHistory.stats();
-    const threshold = mean + std * 1.6;
+    const { mean, std } = fluxHistory.stats();
+    const threshold = mean + std * 1.7;
 
-    if (energyHistory.length > 32 && energy > threshold && now - lastPeakTime > minPeakInterval) {
+    if (fluxHistory.length > 32 && smoothedFlux > threshold && now - lastPeakTime > minPeakInterval) {
       handleTrackPeak(now);
     }
   }
 
+  function estimateBpmFromOnsets(times) {
+    if (times.length < 4) {
+      return null;
+    }
+
+    const minLag = 60000 / 240;
+    const maxLag = 60000 / 40;
+    const binSize = 10;
+    const histogram = new Map();
+
+    for (let i = times.length - 1; i > 0; i -= 1) {
+      const current = times[i];
+      for (let j = i - 1; j >= 0; j -= 1) {
+        const lag = current - times[j];
+        if (lag < minLag) {
+          continue;
+        }
+        if (lag > maxLag) {
+          break;
+        }
+
+        const bin = Math.round(lag / binSize) * binSize;
+        const existing = histogram.get(bin) ?? 0;
+        const weight = 1 - (times.length - 1 - i) / times.length;
+        histogram.set(bin, existing + weight);
+      }
+    }
+
+    if (histogram.size === 0) {
+      return null;
+    }
+
+    let bestLag = 0;
+    let bestScore = 0;
+    histogram.forEach((score, lag) => {
+      if (score > bestScore) {
+        bestScore = score;
+        bestLag = lag;
+      }
+    });
+
+    if (bestLag <= 0 || bestScore < 2) {
+      return null;
+    }
+
+    return normalizeBpm(60000 / bestLag);
+  }
+
   function resetAnalysisState() {
-    trackPeakTimes.length = 0;
+    onsetTimes.length = 0;
     consecutiveTapTimes.length = 0;
     tapTempoTimes.length = 0;
-    energyHistory.reset();
+    fluxHistory.reset();
+    lowBandLevel = 0;
+    highBandLevel = 0;
+    smoothedFlux = 0;
 
     lastTapBpm = null;
     tapTempoBpm = null;
@@ -175,8 +279,12 @@ export function createGameLogic(ui) {
         const source = audioContext.createMediaStreamSource(micStream);
 
         analyser = audioContext.createAnalyser();
-        analyser.fftSize = 512;
-        dataArray = new Uint8Array(analyser.frequencyBinCount);
+        analyser.fftSize = 2048;
+        analyser.minDecibels = -110;
+        analyser.maxDecibels = -10;
+        analyser.smoothingTimeConstant = 0.4;
+        frequencyData = new Float32Array(analyser.frequencyBinCount);
+        binWidth = audioContext.sampleRate / analyser.fftSize;
 
         source.connect(analyser);
 
@@ -211,7 +319,8 @@ export function createGameLogic(ui) {
       audioContext = undefined;
     }
     analyser = undefined;
-    dataArray = undefined;
+    frequencyData = undefined;
+    binWidth = undefined;
 
     ui.setTapDisabled(true);
     ui.setStopDisabled(true);
