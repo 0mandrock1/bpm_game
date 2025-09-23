@@ -70,6 +70,10 @@ const assistDescription = document.querySelector('#assist-description');
 const bpmInput = document.querySelector('#bpm-input');
 const bpmSubmit = document.querySelector('#bpm-submit');
 
+const fireworksContainer = document.createElement('div');
+fireworksContainer.className = 'fireworks-container';
+document.body.appendChild(fireworksContainer);
+
 const assistModes = [
   {
     id: 'off',
@@ -530,6 +534,9 @@ function submitBpmGuess() {
   if (points > 0) {
     score += points;
     message.textContent = `Круто! Разница всего ${userGuessDiff.toFixed(1)} BPM. +${points} очков.`;
+    if (userGuessDiff <= 2) {
+      triggerFireworks();
+    }
   } else {
     score = Math.max(0, score - 20);
     message.textContent = `Не угадали. Вы промахнулись на ${userGuessDiff.toFixed(1)} BPM. -20 очков.`;
@@ -539,6 +546,41 @@ function submitBpmGuess() {
   guessLocked = true;
   bpmInput.disabled = true;
   bpmSubmit.disabled = true;
+}
+
+function triggerFireworks() {
+  const burstCount = 3;
+  for (let i = 0; i < burstCount; i += 1) {
+    const centerX = 20 + Math.random() * 60;
+    const centerY = 20 + Math.random() * 40;
+    const hue = Math.floor(120 + Math.random() * 60);
+    const sparks = 16;
+
+    for (let j = 0; j < sparks; j += 1) {
+      const spark = document.createElement('span');
+      spark.className = 'firework-spark';
+      const angle = (Math.PI * 2 * j) / sparks;
+      const distance = 40 + Math.random() * 35;
+      const tx = Math.cos(angle) * distance;
+      const ty = Math.sin(angle) * distance;
+      spark.style.setProperty('--cx', `${centerX}`);
+      spark.style.setProperty('--cy', `${centerY}`);
+      spark.style.setProperty('--tx', `${tx.toFixed(2)}px`);
+      spark.style.setProperty('--ty', `${ty.toFixed(2)}px`);
+      spark.style.setProperty('--hue', `${hue}`);
+      spark.style.setProperty('--delay', `${Math.random() * 0.25}s`);
+
+      spark.addEventListener(
+        'animationend',
+        () => {
+          spark.remove();
+        },
+        { once: true }
+      );
+
+      fireworksContainer.appendChild(spark);
+    }
+  }
 }
 
 startBtn.addEventListener('click', startListening);
