@@ -20,6 +20,11 @@ export const assistModes = [
     id: 'tap-flash',
     label: 'Assist Mode: Tap Flash',
     description: 'The screen flashes with every tap to help you lock your rhythm.'
+  },  
+    {
+    id: 'tap-tempo-flash',
+    label: 'Assist Mode: Tap Tempo Flash',
+    description: 'The screen flashes with tapped bpm.'
   }
 ];
 
