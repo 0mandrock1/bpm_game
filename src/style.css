@@ -14,8 +14,16 @@ body.assist-mode {
   transition: background-color 180ms ease;
 }
 
-body.assist-mode.assist-flash {
+body.assist-mode.assist-track.assist-flash {
   background-color: #e8ffe8;
+}
+
+body.assist-mode.assist-tap-flash.assist-flash {
+  background-color: #fff4e6;
+}
+
+body.assist-mode.assist-tempo {
+  background-color: #f1f5ff;
 }
 
 .container {
@@ -97,4 +105,10 @@ button:disabled {
   margin-top: 1rem;
   font-weight: 600;
   color: #16a34a;
+}
+
+.assist-description {
+  margin-top: 0.5rem;
+  font-size: 0.95rem;
+  color: #475569;
 }
